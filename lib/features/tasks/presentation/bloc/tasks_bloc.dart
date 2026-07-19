@@ -1,220 +1,144 @@
-import 'package:bloc/bloc.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../domain/entities/task_entity.dart';
 import '../../domain/usecases/get_tasks_usecase.dart';
-import '../../domain/usecases/get_task_by_id_usecase.dart';
-import '../../domain/usecases/update_task_status_usecase.dart';
+import '../../domain/usecases/get_task_detail_usecase.dart';
+import '../../domain/usecases/update_task_usecase.dart';
+import '../../../../core/base/pagination.dart';
 
 part 'tasks_event.dart';
 part 'tasks_state.dart';
 
 class TasksBloc extends Bloc<TasksEvent, TasksState> {
-  final GetTasksUseCase getTasksUseCase;
-  final GetTaskByIdUseCase getTaskByIdUseCase;
-  final UpdateTaskStatusUseCase updateTaskStatusUseCase;
+  final GetTasksUseCase _getTasksUseCase;
+  final GetTaskDetailUseCase _getTaskDetailUseCase;
+  final UpdateTaskUseCase _updateTaskUseCase;
 
-  int _currentPage = 1;
   static const int _pageSize = 20;
+  int _currentPage = 1;
   List<TaskEntity> _allTasks = [];
-  bool _isLoading = false;
+  bool _isLoadingMore = false;
+  bool _hasNextPage = true;
 
   TasksBloc({
-    required this.getTasksUseCase,
-    required this.getTaskByIdUseCase,
-    required this.updateTaskStatusUseCase,
-  }) : super(const TasksInitial()) {
-    on<LoadTasks>(_onLoadTasks);
-    on<LoadNextPage>(_onLoadNextPage);
-    on<RefreshTasks>(_onRefreshTasks);
-    on<UpdateTaskStatus>(_onUpdateTaskStatus);
+    required GetTasksUseCase getTasksUseCase,
+    required GetTaskDetailUseCase getTaskDetailUseCase,
+    required UpdateTaskUseCase updateTaskUseCase,
+  })
+      : _getTasksUseCase = getTasksUseCase,
+        _getTaskDetailUseCase = getTaskDetailUseCase,
+        _updateTaskUseCase = updateTaskUseCase,
+        super(TasksInitial()) {
+    on<LoadTasksEvent>(_onLoadTasks);
+    on<LoadNextPageEvent>(_onLoadNextPage);
+    on<RefreshTasksEvent>(_onRefreshTasks);
+    on<GetTaskDetailEvent>(_onGetTaskDetail);
+    on<UpdateTaskEvent>(_onUpdateTask);
   }
 
-  Future<void> _onLoadTasks(
-    LoadTasks event,
-    Emitter<TasksState> emit,
-  ) async {
-    if (_isLoading) return;
-    _isLoading = true;
+  Future<void> _onLoadTasks(LoadTasksEvent event, Emitter<TasksState> emit) async {
+    if (_allTasks.isNotEmpty) return; // Already loaded
+
+    emit(TasksLoading());
     _currentPage = 1;
     _allTasks = [];
+    _isLoadingMore = false;
+    _hasNextPage = true;
 
-    emit(const TasksLoading());
-
-    final result = await getTasksUseCase(
-      GetTasksParams(page: _currentPage, pageSize: _pageSize),
-    );
+    final result = await _getTasksUseCase(GetTasksParams(_currentPage, _pageSize));
 
     result.fold(
-      (failure) {
-        _isLoading = false;
-        emit(TasksError(message: failure.message));
-      },
+      (failure) => emit(TasksError(failure.message)),
       (paginatedResponse) {
         _allTasks = paginatedResponse.items;
-        _isLoading = false;
-
-        final completedCount =
-            _allTasks.where((task) => task.completed).length;
-        final pendingCount = _allTasks.where((task) => !task.completed).length;
-
-        emit(TasksLoaded(
-          tasks: _allTasks,
-          currentPage: paginatedResponse.currentPage,
-          hasNextPage: paginatedResponse.hasNextPage,
-          totalPages: paginatedResponse.totalPages,
-          completedCount: completedCount,
-          pendingCount: pendingCount,
+        _hasNextPage = paginatedResponse.hasNextPage;
+        emit(TasksSuccess(
+          tasks: paginatedResponse.items,
+          currentPage: _currentPage,
+          hasNextPage: _hasNextPage,
+          isLoadingMore: false,
         ));
       },
     );
   }
 
-  Future<void> _onLoadNextPage(
-    LoadNextPage event,
-    Emitter<TasksState> emit,
-  ) async {
-    if (state is! TasksLoaded || _isLoading) return;
+  Future<void> _onLoadNextPage(LoadNextPageEvent event, Emitter<TasksState> emit) async {
+    if (_isLoadingMore || !_hasNextPage) return; // Protection from multiple requests
 
-    final currentState = state as TasksLoaded;
-    if (!currentState.hasNextPage) return;
+    _isLoadingMore = true;
+    final currentState = state;
 
-    _isLoading = true;
-    _currentPage++;
+    if (currentState is TasksSuccess) {
+      emit(currentState.copyWith(isLoadingMore: true));
 
-    emit(TasksLoadingMore(
-      tasks: currentState.tasks,
-      currentPage: currentState.currentPage,
-      hasNextPage: currentState.hasNextPage,
-      totalPages: currentState.totalPages,
-      completedCount: currentState.completedCount,
-      pendingCount: currentState.pendingCount,
-    ));
+      _currentPage++;
+      final result = await _getTasksUseCase(GetTasksParams(_currentPage, _pageSize));
 
-    final result = await getTasksUseCase(
-      GetTasksParams(page: _currentPage, pageSize: _pageSize),
-    );
-
-    result.fold(
-      (failure) {
-        _isLoading = false;
-        _currentPage--;
-        emit(TasksError(
-          message: failure.message,
-          previousTasks: currentState.tasks,
-        ));
-      },
-      (paginatedResponse) {
-        _allTasks.addAll(paginatedResponse.items);
-        _isLoading = false;
-
-        final completedCount =
-            _allTasks.where((task) => task.completed).length;
-        final pendingCount = _allTasks.where((task) => !task.completed).length;
-
-        emit(TasksLoaded(
-          tasks: _allTasks,
-          currentPage: paginatedResponse.currentPage,
-          hasNextPage: paginatedResponse.hasNextPage,
-          totalPages: paginatedResponse.totalPages,
-          completedCount: completedCount,
-          pendingCount: pendingCount,
-        ));
-      },
-    );
+      result.fold(
+        (failure) {
+          _isLoadingMore = false;
+          _currentPage--; // Revert page number
+          emit(currentState.copyWith(isLoadingMore: false));
+        },
+        (paginatedResponse) {
+          _allTasks.addAll(paginatedResponse.items);
+          _hasNextPage = paginatedResponse.hasNextPage;
+          _isLoadingMore = false;
+          emit(TasksSuccess(
+            tasks: _allTasks,
+            currentPage: _currentPage,
+            hasNextPage: _hasNextPage,
+            isLoadingMore: false,
+          ));
+        },
+      );
+    }
   }
 
-  Future<void> _onRefreshTasks(
-    RefreshTasks event,
-    Emitter<TasksState> emit,
-  ) async {
-    if (_isLoading) return;
-    _isLoading = true;
+  Future<void> _onRefreshTasks(RefreshTasksEvent event, Emitter<TasksState> emit) async {
     _currentPage = 1;
     _allTasks = [];
+    _isLoadingMore = false;
+    _hasNextPage = true;
 
-    final result = await getTasksUseCase(
-      GetTasksParams(page: _currentPage, pageSize: _pageSize),
-    );
+    final result = await _getTasksUseCase(GetTasksParams(_currentPage, _pageSize));
 
     result.fold(
-      (failure) {
-        _isLoading = false;
-        emit(TasksError(message: failure.message));
-      },
+      (failure) => emit(TasksError(failure.message)),
       (paginatedResponse) {
         _allTasks = paginatedResponse.items;
-        _isLoading = false;
-
-        final completedCount =
-            _allTasks.where((task) => task.completed).length;
-        final pendingCount = _allTasks.where((task) => !task.completed).length;
-
-        emit(TasksLoaded(
-          tasks: _allTasks,
-          currentPage: paginatedResponse.currentPage,
-          hasNextPage: paginatedResponse.hasNextPage,
-          totalPages: paginatedResponse.totalPages,
-          completedCount: completedCount,
-          pendingCount: pendingCount,
+        _hasNextPage = paginatedResponse.hasNextPage;
+        emit(TasksSuccess(
+          tasks: paginatedResponse.items,
+          currentPage: _currentPage,
+          hasNextPage: _hasNextPage,
+          isLoadingMore: false,
         ));
       },
     );
   }
 
-  Future<void> _onUpdateTaskStatus(
-    UpdateTaskStatus event,
-    Emitter<TasksState> emit,
-  ) async {
-    if (state is! TasksLoaded) return;
-
-    final currentState = state as TasksLoaded;
-
-    final result = await updateTaskStatusUseCase(
-      UpdateTaskStatusParams(
-        id: event.taskId,
-        completed: event.completed,
-      ),
-    );
+  Future<void> _onGetTaskDetail(GetTaskDetailEvent event, Emitter<TasksState> emit) async {
+    final result = await _getTaskDetailUseCase(GetTaskDetailParams(event.taskId));
 
     result.fold(
-      (failure) {
-        emit(TasksError(
-          message: 'Ошибка обновления статуса',
-          previousTasks: currentState.tasks,
-        ));
-      },
+      (failure) => emit(TaskDetailError(failure.message)),
+      (task) => emit(TaskDetailSuccess(task)),
+    );
+  }
+
+  Future<void> _onUpdateTask(UpdateTaskEvent event, Emitter<TasksState> emit) async {
+    final result = await _updateTaskUseCase(UpdateTaskParams(event.taskId, event.completed));
+
+    result.fold(
+      (failure) => emit(UpdateTaskError(failure.message)),
       (updatedTask) {
-        final updatedTasks = currentState.tasks.map((task) {
-          if (task.id == event.taskId) {
-            return updatedTask;
-          }
-          return task;
-        }).toList();
-
-        final completedCount =
-            updatedTasks.where((task) => task.completed).length;
-        final pendingCount =
-            updatedTasks.where((task) => !task.completed).length;
-
-        _allTasks = updatedTasks;
-
-        emit(TaskStatusUpdated(
-          tasks: updatedTasks,
-          completedCount: completedCount,
-          pendingCount: pendingCount,
-          message: event.completed
-              ? 'Задача отмечена как выполненная ✓'
-              : 'Задача отмечена как невыполненная',
-        ));
-
-        emit(TasksLoaded(
-          tasks: updatedTasks,
-          currentPage: currentState.currentPage,
-          hasNextPage: currentState.hasNextPage,
-          totalPages: currentState.totalPages,
-          completedCount: completedCount,
-          pendingCount: pendingCount,
-        ));
+        // Update the task in the list
+        final index = _allTasks.indexWhere((task) => task.id == updatedTask.id);
+        if (index != -1) {
+          _allTasks[index] = updatedTask;
+        }
+        emit(UpdateTaskSuccess(updatedTask));
       },
     );
   }
