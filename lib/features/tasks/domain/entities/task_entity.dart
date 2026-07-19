@@ -1,17 +1,18 @@
-enum TaskStatus { pending, completed }
+import 'package:equatable/equatable.dart';
 
-class TaskEntity {
+class TaskEntity extends Equatable {
   final int id;
   final int userId;
   final String title;
   final bool completed;
 
-  TaskEntity({
+  const TaskEntity({
     required this.id,
     required this.userId,
     required this.title,
     required this.completed,
   });
 
-  TaskStatus get status => completed ? TaskStatus.completed : TaskStatus.pending;
+  @override
+  List<Object?> get props => [id, userId, title, completed];
 }
