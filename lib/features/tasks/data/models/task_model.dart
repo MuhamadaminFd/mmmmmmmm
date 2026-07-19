@@ -1,11 +1,16 @@
-import '../../domain/entities/task_entity.dart';
+import 'package:equatable/equatable.dart';
 
-class TaskModel extends TaskEntity {
-  TaskModel({
-    required super.id,
-    required super.userId,
-    required super.title,
-    required super.completed,
+class TaskModel extends Equatable {
+  final int id;
+  final int userId;
+  final String title;
+  final bool completed;
+
+  const TaskModel({
+    required this.id,
+    required this.userId,
+    required this.title,
+    required this.completed,
   });
 
   factory TaskModel.fromJson(Map<String, dynamic> json) {
@@ -25,4 +30,7 @@ class TaskModel extends TaskEntity {
       'completed': completed,
     };
   }
+
+  @override
+  List<Object?> get props => [id, userId, title, completed];
 }

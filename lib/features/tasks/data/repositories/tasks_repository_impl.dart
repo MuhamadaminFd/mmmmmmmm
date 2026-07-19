@@ -1,80 +1,72 @@
 import 'package:dartz/dartz.dart';
-import '../../../../core/base/paginated_response.dart';
+import '../../../../core/base/pagination.dart';
 import '../../../../core/error/failures.dart';
 import '../../domain/entities/task_entity.dart';
 import '../../domain/repositories/tasks_repository.dart';
-import '../datasources/tasks_remote_data_source.dart';
+import '../datasources/tasks_remote_datasource.dart';
 import '../models/task_model.dart';
 
 class TasksRepositoryImpl implements TasksRepository {
-  final TasksRemoteDataSource remoteDataSource;
-  List<TaskModel>? _cachedTasks;
+  final TasksRemoteDataSource _remoteDataSource;
 
-  TasksRepositoryImpl({required this.remoteDataSource});
+  TasksRepositoryImpl(this._remoteDataSource);
 
   @override
-  Future<Either<Failure, PaginatedResponse<TaskEntity>>> getTasks(
-    int page,
-    int pageSize,
-  ) async {
+  Future<Either<Failure, PaginatedResponse<TaskEntity>>> getTasks(int page, int pageSize) async {
     try {
-      _cachedTasks ??= await remoteDataSource.getTasks();
-
+      final allTasks = await _remoteDataSource.getTasks();
+      
+      // Client-side pagination
       final startIndex = (page - 1) * pageSize;
       final endIndex = startIndex + pageSize;
-
-      final paginatedTasks = _cachedTasks!.sublist(
+      
+      final paginatedTasks = allTasks.sublist(
         startIndex,
-        endIndex > _cachedTasks!.length ? _cachedTasks!.length : endIndex,
+        endIndex > allTasks.length ? allTasks.length : endIndex,
       );
 
-      final hasNextPage = endIndex < _cachedTasks!.length;
-      final totalPages = (_cachedTasks!.length / pageSize).ceil();
+      final hasNextPage = endIndex < allTasks.length;
 
-      return Right(
-        PaginatedResponse<TaskEntity>(
-          items: paginatedTasks,
-          currentPage: page,
-          hasNextPage: hasNextPage,
-          totalPages: totalPages,
-        ),
-      );
+      final entities = paginatedTasks.map((model) => _mapToEntity(model)).toList();
+
+      return Right(PaginatedResponse(
+        items: entities,
+        currentPage: page,
+        hasNextPage: hasNextPage,
+        pageSize: pageSize,
+        totalItems: allTasks.length,
+      ));
     } catch (e) {
-      return Left(ServerFailure(message: e.toString()));
+      return Left(NetworkFailure('Ошибка загрузки задач: $e'));
     }
   }
 
   @override
-  Future<Either<Failure, TaskEntity>> getTaskById(int id) async {
+  Future<Either<Failure, TaskEntity>> getTaskDetail(int id) async {
     try {
-      final task = await remoteDataSource.getTaskById(id);
-      return Right(task);
+      final taskModel = await _remoteDataSource.getTaskDetail(id);
+      return Right(_mapToEntity(taskModel));
     } catch (e) {
-      return Left(ServerFailure(message: e.toString()));
+      return Left(NetworkFailure('Ошибка загрузки задачи: $e'));
     }
   }
 
   @override
-  Future<Either<Failure, TaskEntity>> updateTaskStatus(
-    int id,
-    bool completed,
-  ) async {
+  Future<Either<Failure, TaskEntity>> updateTask(int id, bool completed) async {
     try {
-      if (_cachedTasks != null) {
-        final taskIndex = _cachedTasks!.indexWhere((task) => task.id == id);
-        if (taskIndex != -1) {
-          _cachedTasks![taskIndex] = TaskModel(
-            id: _cachedTasks![taskIndex].id,
-            userId: _cachedTasks![taskIndex].userId,
-            title: _cachedTasks![taskIndex].title,
-            completed: completed,
-          );
-          return Right(_cachedTasks![taskIndex]);
-        }
-      }
-      return Left(ServerFailure(message: 'Task not found'));
+      final taskModel = await _remoteDataSource.updateTask(id, completed);
+      return Right(_mapToEntity(taskModel));
     } catch (e) {
-      return Left(ServerFailure(message: e.toString()));
+      return Left(NetworkFailure('Ошибка обновления задачи: $e'));
     }
+  }
+
+  TaskEntity _mapToEntity(TaskModel model) {
+    return TaskEntity(
+      id: model.id,
+      userId: model.userId,
+      title: model.title,
+      completed: model.completed,
+    );
   }
 }
