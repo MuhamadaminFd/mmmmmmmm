@@ -1,0 +1,48 @@
+name: taskhub
+description: "TaskHub - приложение управления задачами с Clean Architecture"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  
+  # BLoC & Управление состоянием
+  flutter_bloc: ^8.1.4
+  bloc: ^8.1.2
+  equatable: ^2.0.5
+  
+  # Dependency Injection
+  get_it: ^7.6.0
+  
+  # HTTP & API
+  http: ^1.1.0
+  
+  # Безопасное хранилище
+  flutter_secure_storage: ^9.0.0
+  
+  # Riverpod
+  riverpod: ^2.4.0
+  flutter_riverpod: ^2.4.0
+  
+  # Functional programming
+  dartz: ^0.10.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/
