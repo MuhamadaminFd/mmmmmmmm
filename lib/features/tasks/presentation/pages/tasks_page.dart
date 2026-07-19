@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/extensions/task_status_extension.dart';
 import '../../domain/entities/task_entity.dart';
 import '../bloc/tasks_bloc.dart';
+import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import 'task_detail_page.dart';
 
 class TasksPage extends StatefulWidget {
