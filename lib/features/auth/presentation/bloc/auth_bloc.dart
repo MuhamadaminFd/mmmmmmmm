@@ -1,71 +1,75 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../../core/di/service_locator.dart';
+import 'package:equatable/equatable.dart';
+import '../../domain/usecases/login_usecase.dart';
+import '../../domain/usecases/logout_usecase.dart';
+import '../../domain/usecases/check_auth_usecase.dart';
+import '../../domain/usecases/get_token_usecase.dart';
+import '../../../../core/base/usecase.dart';
 
 part 'auth_event.dart';
 part 'auth_state.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
-  final CheckAuthUseCase checkAuthUseCase;
-  final LoginUseCase loginUseCase;
-  final LogoutUseCase logoutUseCase;
+  final LoginUseCase _loginUseCase;
+  final LogoutUseCase _logoutUseCase;
+  final CheckAuthUseCase _checkAuthUseCase;
+  final GetTokenUseCase _getTokenUseCase;
 
   AuthBloc({
-    required this.checkAuthUseCase,
-    required this.loginUseCase,
-    required this.logoutUseCase,
-  }) : super(const AuthInitial()) {
-    on<AuthCheckRequested>(_onAuthCheckRequested);
-    on<AuthLoginRequested>(_onAuthLoginRequested);
-    on<AuthLogoutRequested>(_onAuthLogoutRequested);
-
-    add(const AuthCheckRequested());
+    required LoginUseCase loginUseCase,
+    required LogoutUseCase logoutUseCase,
+    required CheckAuthUseCase checkAuthUseCase,
+    required GetTokenUseCase getTokenUseCase,
+  })
+      : _loginUseCase = loginUseCase,
+        _logoutUseCase = logoutUseCase,
+        _checkAuthUseCase = checkAuthUseCase,
+        _getTokenUseCase = getTokenUseCase,
+        super(AuthInitial()) {
+    on<CheckAuthEvent>(_onCheckAuth);
+    on<LoginEvent>(_onLogin);
+    on<LogoutEvent>(_onLogout);
+    on<GetTokenEvent>(_onGetToken);
   }
 
-  Future<void> _onAuthCheckRequested(
-    AuthCheckRequested event,
-    Emitter<AuthState> emit,
-  ) async {
-    emit(const AuthLoading());
-    final result = await checkAuthUseCase(NoParams());
-
+  Future<void> _onCheckAuth(CheckAuthEvent event, Emitter<AuthState> emit) async {
+    emit(AuthLoading());
+    final result = await _checkAuthUseCase(NoParams());
     result.fold(
-      (failure) => emit(const AuthUnauthenticated()),
+      (failure) => emit(AuthUnauthenticated(failure.message)),
       (isAuthenticated) {
         if (isAuthenticated) {
-          emit(const AuthAuthenticated(email: 'student@test.com'));
+          emit(AuthAuthenticated());
         } else {
-          emit(const AuthUnauthenticated());
+          emit(AuthUnauthenticated(''));
         }
       },
     );
   }
 
-  Future<void> _onAuthLoginRequested(
-    AuthLoginRequested event,
-    Emitter<AuthState> emit,
-  ) async {
-    emit(const AuthLoading());
-    final result = await loginUseCase(
-      LoginParams(email: event.email, password: event.password),
-    );
-
+  Future<void> _onLogin(LoginEvent event, Emitter<AuthState> emit) async {
+    emit(AuthLoading());
+    final result = await _loginUseCase(LoginParams(event.email, event.password));
     result.fold(
-      (failure) => emit(AuthError(message: failure.message)),
-      (user) => emit(AuthAuthenticated(email: user.email)),
+      (failure) => emit(AuthError(failure.message)),
+      (_) => emit(AuthAuthenticated()),
     );
   }
 
-  Future<void> _onAuthLogoutRequested(
-    AuthLogoutRequested event,
-    Emitter<AuthState> emit,
-  ) async {
-    emit(const AuthLoading());
-    final result = await logoutUseCase(NoParams());
-
+  Future<void> _onLogout(LogoutEvent event, Emitter<AuthState> emit) async {
+    emit(AuthLoading());
+    final result = await _logoutUseCase(NoParams());
     result.fold(
-      (failure) => emit(AuthError(message: failure.message)),
-      (_) => emit(const AuthUnauthenticated()),
+      (failure) => emit(AuthError(failure.message)),
+      (_) => emit(AuthUnauthenticated('')),
+    );
+  }
+
+  Future<void> _onGetToken(GetTokenEvent event, Emitter<AuthState> emit) async {
+    final result = await _getTokenUseCase(NoParams());
+    result.fold(
+      (failure) => emit(AuthError(failure.message)),
+      (token) => emit(AuthTokenReceived(token)),
     );
   }
 }
