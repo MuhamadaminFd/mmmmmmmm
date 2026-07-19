@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../widgets/task_list_item.dart';
-import '../widgets/empty_state.dart';
-import '../widgets/error_state.dart';
-import '../bloc/tasks_bloc.dart';
+import '../../../../core/extensions/task_status_extension.dart';
 import '../../domain/entities/task_entity.dart';
+import '../bloc/tasks_bloc.dart';
+import 'task_detail_page.dart';
 
 class TasksPage extends StatefulWidget {
   const TasksPage({Key? key}) : super(key: key);
@@ -21,7 +20,7 @@ class _TasksPageState extends State<TasksPage> {
     super.initState();
     _scrollController = ScrollController();
     _scrollController.addListener(_onScroll);
-    context.read<TasksBloc>().add(const LoadTasks());
+    context.read<TasksBloc>().add(const LoadTasksEvent());
   }
 
   @override
@@ -31,102 +30,172 @@ class _TasksPageState extends State<TasksPage> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >=
-        _scrollController.position.maxScrollExtent * 0.8) {
-      context.read<TasksBloc>().add(const LoadNextPage());
+    if (_scrollController.position.pixels == _scrollController.position.maxScrollExtent) {
+      context.read<TasksBloc>().add(const LoadNextPageEvent());
     }
+  }
+
+  void _refreshTasks() {
+    context.read<TasksBloc>().add(const RefreshTasksEvent());
+  }
+
+  void _toggleTask(TaskEntity task) {
+    context.read<TasksBloc>().add(
+      UpdateTaskEvent(task.id, !task.completed),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TaskHub'),
+        title: const Text('Задачи'),
         elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF1A1A2E),
         actions: [
-          BlocSelector<TasksBloc, TasksState, int>(
-            selector: (state) {
-              if (state is TasksLoaded) return state.completedCount;
-              if (state is TasksLoadingMore) return state.completedCount;
-              if (state is TaskStatusUpdated) return state.completedCount;
-              return 0;
-            },
-            builder: (context, completedCount) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Center(
-                  child: Chip(
-                    avatar: const Icon(Icons.done, size: 18),
-                    label: Text('$completedCount'),
-                    backgroundColor: Colors.green.shade100,
-                  ),
-                ),
-              );
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              context.read<AuthBloc>().add(const LogoutEvent());
             },
           ),
         ],
       ),
-      body: BlocBuilder<TasksBloc, TasksState>(
-        builder: (context, state) {
-          if (state is TasksLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (state is TasksError) {
-            return ErrorState(
-              message: state.message,
-              onRetry: () {
-                context.read<TasksBloc>().add(const LoadTasks());
-              },
+      body: BlocListener<TasksBloc, TasksState>(
+        listener: (context, state) {
+          if (state is UpdateTaskSuccess) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Задача обновлена'),
+                duration: Duration(seconds: 1),
+              ),
             );
-          }
-
-          if (state is TasksLoaded && state.tasks.isEmpty) {
-            return const EmptyState();
-          }
-
-          if (state is TasksLoaded || state is TasksLoadingMore) {
-            final tasks = state is TasksLoaded
-                ? state.tasks
-                : (state as TasksLoadingMore).tasks;
-            final hasNextPage = state is TasksLoaded
-                ? state.hasNextPage
-                : (state as TasksLoadingMore).hasNextPage;
-
-            return RefreshIndicator(
-              onRefresh: () async {
-                context.read<TasksBloc>().add(const RefreshTasks());
-              },
-              child: ListView.builder(
-                controller: _scrollController,
-                physics: const AlwaysScrollableScrollPhysics(),
-                itemCount: tasks.length + (hasNextPage ? 1 : 0),
-                itemBuilder: (context, index) {
-                  if (index == tasks.length) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-
-                  return TaskListItem(
-                    task: tasks[index],
-                    onStatusChanged: (completed) {
-                      context.read<TasksBloc>().add(
-                            UpdateTaskStatus(
-                              taskId: tasks[index].id,
-                              completed: completed,
-                            ),
-                          );
-                    },
-                  );
-                },
+          } else if (state is UpdateTaskError) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.message),
+                backgroundColor: Colors.red,
               ),
             );
           }
-
-          return const EmptyState();
         },
+        child: BlocBuilder<TasksBloc, TasksState>(
+          builder: (context, state) {
+            if (state is TasksLoading) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            } else if (state is TasksSuccess) {
+              return RefreshIndicator(
+                onRefresh: () async => _refreshTasks(),
+                child: ListView.builder(
+                  controller: _scrollController,
+                  itemCount: state.tasks.length + (state.isLoadingMore ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (index == state.tasks.length) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: CircularProgressIndicator(),
+                        ),
+                      );
+                    }
+
+                    final task = state.tasks[index];
+                    final status = TaskStatusExtension.fromBool(task.completed);
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16.0,
+                        vertical: 8.0,
+                      ),
+                      child: Card(
+                        elevation: 1,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          leading: Checkbox(
+                            value: task.completed,
+                            onChanged: (value) => _toggleTask(task),
+                            activeColor: const Color(0xFF6C63FF),
+                          ),
+                          title: Text(
+                            task.title,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: const Color(0xFF1A1A2E),
+                              decoration: task.completed
+                                  ? TextDecoration.lineThrough
+                                  : TextDecoration.none,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Chip(
+                            label: Text(
+                              status.title,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white,
+                              ),
+                            ),
+                            backgroundColor: status.color,
+                          ),
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => TaskDetailPage(task: task),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            } else if (state is TasksError) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      size: 64,
+                      color: Colors.red,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Ошибка',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      state.message,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _refreshTasks,
+                      child: const Text('Повторить'),
+                    ),
+                  ],
+                ),
+              );
+            }
+            return const SizedBox();
+          },
+        ),
       ),
     );
   }
