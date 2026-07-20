@@ -1,43 +1,29 @@
 import 'package:flutter/material.dart';
 
-enum TaskStatus {
-  completed,
-  pending,
+class TaskStatus {
+  final String title;
+  final Color color;
+  final IconData icon;
+
+  TaskStatus({
+    required this.title,
+    required this.color,
+    required this.icon,
+  });
 }
 
-extension TaskStatusExtension on TaskStatus {
-  String get title {
-    switch (this) {
-      case TaskStatus.completed:
-        return 'Выполнено';
-      case TaskStatus.pending:
-        return 'В процессе';
-    }
-  }
-
-  Color get color {
-    switch (this) {
-      case TaskStatus.completed:
-        return Colors.green;
-      case TaskStatus.pending:
-        return Colors.orange;
-    }
-  }
-
-  IconData get icon {
-    switch (this) {
-      case TaskStatus.completed:
-        return Icons.check_circle;
-      case TaskStatus.pending:
-        return Icons.schedule;
-    }
-  }
-
-  static TaskStatus fromBool(bool isCompleted) {
-    return isCompleted ? TaskStatus.completed : TaskStatus.pending;
-  }
-
-  bool toBoolean() {
-    return this == TaskStatus.completed;
+extension TaskStatusExtension on bool {
+  static TaskStatus fromBool(bool completed) {
+    return completed
+        ? TaskStatus(
+            title: 'Выполнено',
+            color: Colors.green,
+            icon: Icons.check_circle,
+          )
+        : TaskStatus(
+            title: 'В процессе',
+            color: Colors.orange,
+            icon: Icons.schedule,
+          );
   }
 }
